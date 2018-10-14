@@ -1,19 +1,23 @@
 {
-    "version": "16",
+    "version": "30",
     "credential": {
         "accessKey": "USWUXHGYZQYFYFFIT3RE",
         "secretKey": "MOJRH0mkL1IPauahWITSVvyDrQbEEIwljvmxdq03"
     },
     "region": "us-east-1",
-    "browser": "on",
-    "logger": {
-        "console": {
-            "enable": true
-        },
-        "file": {
-            "enable": false,
-            "filename": ""
-        }
+    "worm": "off",
+    "storageclass": {
+        "standard": "",
+        "rrs": ""
+    },
+    "cache": {
+        "drives": [],
+        "expiry": 90,
+        "exclude": [],
+        "maxuse": 80
+    },
+    "usage": {
+        "interval": "3h"
     },
     "notify": {
         "amqp": {
@@ -85,7 +89,17 @@
             "1": {
                 "enable": true,
                 "brokers": ["localhost:9092"],
-                "topic": "bucketevents"
+                "topic": "bucketevents",
+                "tls" : {
+                    "enable" : true,
+                    "skipVerify" : false,
+                    "clientAuth" : 0
+                },
+                "sasl" : {
+                    "enable" : true,
+                    "username" : "kafka",
+                    "password" : "kafkapasswd"
+                }
             }
         },
         "webhook": {
@@ -106,6 +120,39 @@
                 "password": "password",
                 "database": "miniodb"
             }
+        },
+        "mqtt": {
+            "1": {
+                "enable": false,
+                "broker": "tcp://localhost:1883",
+                "topic": "minio",
+                "qos": 1,
+                "clientId": "minio",
+                "username": "",
+                "password": ""
+            }
+        }
+    },
+    "logger": {
+        "console": {
+            "enabled": true
+        },
+        "http": {
+            "1": {
+                "enabled": false,
+                "endpoint": ""
+            }
+        }
+    },
+    "openid": {
+        "jwks": {
+            "url": ""
+        }
+    },
+    "policy": {
+        "opa": {
+            "url": "",
+            "authToken": ""
         }
     }
 }

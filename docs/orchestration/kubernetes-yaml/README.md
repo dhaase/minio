@@ -17,6 +17,7 @@
     - [Create Minio Statefulset](#create-minio-statefulset)
     - [Create LoadBalancer Service](#create-minio-service)
   - [Update existing Minio StatefulSet](#update-existing-minio-statefulset)
+  - [Deploying on cluster nodes with local host path](#deploying-on-cluster-nodes-with-local-host-path)
   - [Resource cleanup](#distributed-resource-cleanup)
 
 - [Minio GCS Gateway Deployment](#minio-gcs-gateway-deployment)
@@ -29,8 +30,7 @@
 
 ## Prerequisites
 
-To run this example, you need Kubernetes version >=1.4 cluster installed and running, and that you have installed the [`kubectl`](https://kubernetes.io/docs/tasks/kubectl/install/) command line tool in your path. Please see the
-[getting started guides](https://kubernetes.io/docs/getting-started-guides/) for installation instructions for your platform.
+To run this example, you need Kubernetes version >=1.4 cluster installed and running, and that you have installed the [`kubectl`](https://kubernetes.io/docs/tasks/kubectl/install/) command line tool in your path. Please see the [getting started guides](https://kubernetes.io/docs/getting-started-guides/) for installation instructions for your platform.
 
 ## Minio Standalone Server Deployment
 
@@ -66,15 +66,12 @@ This is the PVC description.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  # This name uniquely identifies the PVC. Will be used in deployment below.
+  # This name uniquely identifies the PVC. This is used in deployment.
   name: minio-pv-claim
-  annotations:
-    volume.alpha.kubernetes.io/storage-class: anything
-  labels:
-    app: minio-storage-claim
 spec:
   # Read more about access modes here: http://kubernetes.io/docs/user-guide/persistent-volumes/#access-modes
   accessModes:
+    # The volume is mounted as read-write by a single node
     - ReadWriteOnce
   resources:
     # This is the request for storage. Should be available in the cluster.
@@ -100,26 +97,34 @@ apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
   # This name uniquely identifies the Deployment
-  name: minio-deployment
+  name: minio
 spec:
   strategy:
+    # Specifies the strategy used to replace old Pods by new ones
+    # Refer: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy
     type: Recreate
   template:
     metadata:
       labels:
-        # Label is used as selector in the service.
+        # This label is used as a selector in Service definition
         app: minio
     spec:
-      # Refer to the PVC created earlier
+      # Volumes used by this deployment
       volumes:
       - name: data
+        # This volume is based on PVC
         persistentVolumeClaim:
           # Name of the PVC created earlier
           claimName: minio-pv-claim
       containers:
       - name: minio
-        # Pulls the default Minio image from Docker Hub
-        image: minio/minio:RELEASE.2017-05-05T01-14-51Z
+        # Volume mounts for this container
+        volumeMounts:
+        # Volume 'data' is mounted to path '/data'
+        - name: data 
+          mountPath: "/data"
+        # Pulls the lastest Minio image from Docker Hub
+        image: minio/minio:RELEASE.2018-10-06T00-15-16Z
         args:
         - server
         - /data
@@ -131,11 +136,24 @@ spec:
           value: "minio123"
         ports:
         - containerPort: 9000
-          hostPort: 9000
-        # Mount the volume into the pod
-        volumeMounts:
-        - name: data # must match the volume name, above
-          mountPath: "/data"
+        # Readiness probe detects situations when Minio server instance
+        # is not ready to accept traffic. Kubernetes doesn't forward
+        # traffic to the pod till readiness checks fail.
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: 9000
+          initialDelaySeconds: 120
+          periodSeconds: 20
+        # Liveness probe detects situations where Minio server instance
+        # is not working properly and needs restart. Kubernetes automatically
+        # restarts the pods if liveness checks fail.
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          initialDelaySeconds: 120
+          periodSeconds: 20
 ```
 
 Create the Deployment
@@ -155,6 +173,7 @@ In this example, we expose the Minio Deployment by creating a LoadBalancer servi
 apiVersion: v1
 kind: Service
 metadata:
+  # This name uniquely identifies the service
   name: minio-service
 spec:
   type: LoadBalancer
@@ -163,6 +182,7 @@ spec:
       targetPort: 9000
       protocol: TCP
   selector:
+    # Looks for labels `app:minio` in the namespace and applies the spec
     app: minio
 ```
 Create the Minio service
@@ -199,7 +219,7 @@ deployment "minio-deployment" image updated
 You can cleanup the cluster using
 
 ```sh
-kubectl delete deployment minio-deployment \
+kubectl delete deployment minio \
 &&  kubectl delete pvc minio-pv-claim \
 && kubectl delete svc minio-service
 ```
@@ -263,16 +283,18 @@ This is the Statefulset description.
 apiVersion: apps/v1beta1
 kind: StatefulSet
 metadata:
+  # This name uniquely identifies the StatefulSet
   name: minio
 spec:
   serviceName: minio
   replicas: 4
+  selector:
+    matchLabels:
+      app: minio # has to match .spec.template.metadata.labels
   template:
     metadata:
-      annotations:
-        pod.alpha.kubernetes.io/initialized: "true"
       labels:
-        app: minio
+        app: minio # has to match .spec.selector.matchLabels
     spec:
       containers:
       - name: minio
@@ -281,7 +303,7 @@ spec:
           value: "minio"
         - name: MINIO_SECRET_KEY
           value: "minio123"
-        image: minio/minio:RELEASE.2017-05-05T01-14-51Z
+        image: minio/minio:RELEASE.2018-10-06T00-15-16Z
         args:
         - server
         - http://minio-0.minio.default.svc.cluster.local/data
@@ -290,19 +312,25 @@ spec:
         - http://minio-3.minio.default.svc.cluster.local/data
         ports:
         - containerPort: 9000
-          hostPort: 9000
         # These volume mounts are persistent. Each pod in the PetSet
         # gets a volume mounted based on this field.
         volumeMounts:
         - name: data
           mountPath: /data
+        # Liveness probe detects situations where Minio server instance
+        # is not working properly and needs restart. Kubernetes automatically
+        # restarts the pods if liveness checks fail.
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: 9000
+          initialDelaySeconds: 120
+          periodSeconds: 20
   # These are converted to volume claims by the controller
   # and mounted at the paths mentioned above.
   volumeClaimTemplates:
   - metadata:
       name: data
-      annotations:
-        volume.alpha.kubernetes.io/storage-class: anything
     spec:
       accessModes:
         - ReadWriteOnce
@@ -381,6 +409,35 @@ kubectl delete statefulset minio \
 && kubectl delete svc minio-service
 ```
 
+### Deploying on cluster nodes with local host path
+
+If your cluster does not have a storage solution or PV abstraction, you must explicitly define what nodes you wish to run Minio on, and define a homogeneous path to a local fast block device available on every host.
+
+This must be changed in the example daemonset: [minio-distributed-daemonset.yaml](minio-distributed-daemonset.yaml)
+
+Specifically the hostpath:
+```yaml
+        hostPath:
+          path: /data/minio/
+```
+
+And the list of hosts:
+```yaml
+        - http://hostname1:9000/data/minio
+        - http://hostname2:9000/data/minio
+        - http://hostname3:9000/data/minio
+        - http://hostname4:9000/data/minio
+```
+
+Once deployed, tag the defined host with the `minio-server=true` label:
+
+```bash
+kubectl label node hostname1  -l minio-server=true
+kubectl label node hostname2  -l minio-server=true
+kubectl label node hostname3  -l minio-server=true
+kubectl label node hostname4  -l minio-server=true
+```
+
 ## Minio GCS Gateway Deployment
 
 The following section describes the process to deploy [Minio](https://minio.io/) GCS Gateway on Kubernetes. The deployment uses the [official Minio Docker image](https://hub.docker.com/r/minio/minio/~/dockerfile/) from Docker Hub.
@@ -457,7 +514,7 @@ spec:
       containers:
       - name: minio
         # Pulls the default Minio image from Docker Hub
-        image: minio/minio:RELEASE.2017-09-29T19-16-56Z
+        image: minio/minio:RELEASE.2018-10-06T00-15-16Z
         args:
         - gateway
         - gcs
@@ -473,7 +530,6 @@ spec:
           value: "/etc/credentials/application_default_credentials.json"
         ports:
         - containerPort: 9000
-          hostPort: 9000
         # Mount the volume into the pod
         volumeMounts:
         - name: gcs-credentials

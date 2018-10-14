@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2015, 2016, 2017 Minio, Inc.
+ * Minio Cloud Storage, (C) 2015, 2016, 2017, 2018 Minio, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/xml"
@@ -27,7 +28,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -35,6 +35,7 @@ import (
 	"time"
 
 	humanize "github.com/dustin/go-humanize"
+	"github.com/minio/minio/pkg/policy"
 )
 
 // API suite container common to both FS and XL.
@@ -44,7 +45,6 @@ type TestSuiteCommon struct {
 	endPoint   string
 	accessKey  string
 	secretKey  string
-	configPath string
 	signer     signerType
 	secure     bool
 	transport  *http.Transport
@@ -75,15 +75,10 @@ func verifyError(c *check, response *http.Response, code, description string, st
 
 func runAllTests(suite *TestSuiteCommon, c *check) {
 	suite.SetUpSuite(c)
-	suite.TestBucketSQSNotificationWebHook(c)
-	if suite.serverType == "XL" {
-		suite.TestObjectDir(c)
-	}
-	suite.TestBucketSQSNotificationAMQP(c)
+	suite.TestObjectDir(c)
 	suite.TestBucketPolicy(c)
 	suite.TestDeleteBucket(c)
 	suite.TestDeleteBucketNotEmpty(c)
-	suite.TestListenBucketNotificationHandler(c)
 	suite.TestDeleteMultipleObjects(c)
 	suite.TestDeleteObject(c)
 	suite.TestNonExistentBucket(c)
@@ -128,25 +123,26 @@ func runAllTests(suite *TestSuiteCommon, c *check) {
 func TestServerSuite(t *testing.T) {
 	testCases := []*TestSuiteCommon{
 		// Init and run test on FS backend with signature v4.
-		&TestSuiteCommon{serverType: "FS", signer: signerV4},
+		{serverType: "FS", signer: signerV4},
 		// Init and run test on FS backend with signature v2.
-		&TestSuiteCommon{serverType: "FS", signer: signerV2},
+		{serverType: "FS", signer: signerV2},
 		// Init and run test on FS backend, with tls enabled.
-		&TestSuiteCommon{serverType: "FS", signer: signerV4, secure: true},
+		{serverType: "FS", signer: signerV4, secure: true},
 		// Init and run test on XL backend.
-		&TestSuiteCommon{serverType: "XL", signer: signerV4},
+		{serverType: "XL", signer: signerV4},
+		// Init and run test on XLSet backend.
+		{serverType: "XLSet", signer: signerV4},
 	}
-	for _, testCase := range testCases {
-		runAllTests(testCase, &check{t, testCase.serverType})
+	for i, testCase := range testCases {
+		t.Run(fmt.Sprintf("Test: %d, ServerType: %s", i+1, testCase.serverType), func(t *testing.T) {
+			runAllTests(testCase, &check{t, testCase.serverType})
+		})
 	}
 }
 
 // Setting up the test suite.
 // Starting the Test server with temporary FS backend.
 func (s *TestSuiteCommon) SetUpSuite(c *check) {
-	rootPath, err := newTestConfig("us-east-1")
-	c.Assert(err, nil)
-
 	if s.secure {
 		cert, key, err := generateTLSCertKey("127.0.0.1")
 		c.Assert(err, nil)
@@ -170,12 +166,10 @@ func (s *TestSuiteCommon) SetUpSuite(c *check) {
 	s.endPoint = s.testServer.Server.URL
 	s.accessKey = s.testServer.AccessKey
 	s.secretKey = s.testServer.SecretKey
-	s.configPath = rootPath
 }
 
 // Called implicitly by "gopkg.in/check.v1" after all tests are run.
 func (s *TestSuiteCommon) TearDownSuite(c *check) {
-	os.RemoveAll(s.configPath)
 	s.testServer.Stop()
 }
 
@@ -260,7 +254,7 @@ func (s *TestSuiteCommon) TestObjectDir(c *check) {
 	response, err = client.Do(request)
 
 	c.Assert(err, nil)
-	c.Assert(response.StatusCode, http.StatusNotFound)
+	c.Assert(response.StatusCode, http.StatusOK)
 
 	request, err = newTestSignedRequest("GET", getGetObjectURL(s.endPoint, bucketName, "my-object-directory/"),
 		0, nil, s.accessKey, s.secretKey, s.signer)
@@ -271,7 +265,7 @@ func (s *TestSuiteCommon) TestObjectDir(c *check) {
 	response, err = client.Do(request)
 
 	c.Assert(err, nil)
-	c.Assert(response.StatusCode, http.StatusNotFound)
+	c.Assert(response.StatusCode, http.StatusOK)
 
 	request, err = newTestSignedRequest("DELETE", getDeleteObjectURL(s.endPoint, bucketName, "my-object-directory/"),
 		0, nil, s.accessKey, s.secretKey, s.signer)
@@ -319,7 +313,7 @@ func (s *TestSuiteCommon) TestBucketSQSNotificationAMQP(c *check) {
 // Deletes the policy and verifies the deletion by fetching it back.
 func (s *TestSuiteCommon) TestBucketPolicy(c *check) {
 	// Sample bucket policy.
-	bucketPolicyBuf := `{"Version":"2012-10-17","Statement":[{"Action":["s3:GetBucketLocation","s3:ListBucket"],"Effect":"Allow","Principal":{"AWS":["*"]},"Resource":["arn:aws:s3:::%s"],"Sid":""},{"Action":["s3:GetObject"],"Effect":"Allow","Principal":{"AWS":["*"]},"Resource":["arn:aws:s3:::%s/this*"],"Sid":""}]}`
+	bucketPolicyBuf := `{"Version":"2012-10-17","Statement":[{"Action":["s3:GetBucketLocation","s3:ListBucket"],"Effect":"Allow","Principal":{"AWS":["*"]},"Resource":["arn:aws:s3:::%s"]},{"Action":["s3:GetObject"],"Effect":"Allow","Principal":{"AWS":["*"]},"Resource":["arn:aws:s3:::%s/this*"]}]}`
 
 	// generate a random bucket Name.
 	bucketName := getRandomBucketName()
@@ -361,7 +355,11 @@ func (s *TestSuiteCommon) TestBucketPolicy(c *check) {
 	bucketPolicyReadBuf, err := ioutil.ReadAll(response.Body)
 	c.Assert(err, nil)
 	// Verify if downloaded policy matches with previousy uploaded.
-	c.Assert(bytes.Equal([]byte(bucketPolicyStr), bucketPolicyReadBuf), true)
+	expectedPolicy, err := policy.ParseConfig(strings.NewReader(bucketPolicyStr), bucketName)
+	c.Assert(err, nil)
+	gotPolicy, err := policy.ParseConfig(bytes.NewReader(bucketPolicyReadBuf), bucketName)
+	c.Assert(err, nil)
+	c.Assert(reflect.DeepEqual(expectedPolicy, gotPolicy), true)
 
 	// Delete policy.
 	request, err = newTestSignedRequest("DELETE", getDeletePolicyURL(s.endPoint, bucketName), 0, nil,
@@ -522,32 +520,6 @@ func (s *TestSuiteCommon) TestListenBucketNotificationHandler(c *check) {
 	if s.signer == signerV4 {
 		verifyError(c, response, "XAmzContentSHA256Mismatch", "The provided 'x-amz-content-sha256' header does not match what was computed.", http.StatusBadRequest)
 	}
-
-	// Change global value from 5 second to 100millisecond.
-	globalSNSConnAlive = 100 * time.Millisecond
-	req, err = newTestSignedRequest("GET",
-		getListenBucketNotificationURL(s.endPoint, bucketName,
-			[]string{}, []string{}, validEvents), 0, nil, s.accessKey, s.secretKey, s.signer)
-	c.Assert(err, nil)
-	client = http.Client{Transport: s.transport}
-	// execute the request.
-	response, err = client.Do(req)
-	c.Assert(err, nil)
-	c.Assert(response.StatusCode, http.StatusOK)
-	// FIXME: uncomment this in future when we have a code to read notifications from.
-	// go func() {
-	// 	buf := bytes.NewReader(tooByte)
-	// 	rreq, rerr := newTestSignedRequest("GET",
-	// 		getPutObjectURL(s.endPoint, bucketName, "myobject/1"),
-	// 		int64(buf.Len()), buf, s.accessKey, s.secretKey, s.signer)
-	// 	c.Assert(rerr, IsNil)
-	// 	client = http.Client{Transport: s.transport}
-	// 	// execute the request.
-	// 	resp, rerr := client.Do(rreq)
-	// 	c.Assert(rerr, IsNil)
-	// 	c.Assert(resp.StatusCode,  http.StatusOK)
-	// }()
-	response.Body.Close() // FIXME. Find a way to read from the returned body.
 }
 
 // Test deletes multple objects and verifies server resonse.
@@ -664,7 +636,7 @@ func (s *TestSuiteCommon) TestDeleteObject(c *check) {
 	// assert the status of http response.
 	c.Assert(response.StatusCode, http.StatusOK)
 
-	// object name was "prefix/myobject", an attempt to delelte "prefix"
+	// object name was "prefix/myobject", an attempt to delete "prefix"
 	// Should not delete "prefix/myobject"
 	request, err = newTestSignedRequest("DELETE", getDeleteObjectURL(s.endPoint, bucketName, "prefix"),
 		0, nil, s.accessKey, s.secretKey, s.signer)
@@ -2441,7 +2413,7 @@ func (s *TestSuiteCommon) TestBucketMultipartList(c *check) {
 	// unmarshalling works from a client perspective, specifically
 	// while unmarshalling time.Time type for 'Initiated' field.
 	// time.Time does not honor xml marshaler, it means that we need
-	// to encode/format it before giving it to xml marshalling.
+	// to encode/format it before giving it to xml marshaling.
 
 	// This below check adds client side verification to see if its
 	// truly parseable.
@@ -2730,8 +2702,8 @@ func (s *TestSuiteCommon) TestObjectMultipart(c *check) {
 	c.Assert(response2.StatusCode, http.StatusOK)
 
 	// Complete multipart upload
-	completeUploads := &completeMultipartUpload{
-		Parts: []completePart{
+	completeUploads := &CompleteMultipartUpload{
+		Parts: []CompletePart{
 			{
 				PartNumber: 1,
 				ETag:       response1.Header.Get("ETag"),
@@ -2745,7 +2717,7 @@ func (s *TestSuiteCommon) TestObjectMultipart(c *check) {
 
 	completeBytes, err := xml.Marshal(completeUploads)
 	c.Assert(err, nil)
-	// Indicating that all parts are uploaded and initiating completeMultipartUpload.
+	// Indicating that all parts are uploaded and initiating CompleteMultipartUpload.
 	request, err = newTestSignedRequest("POST", getCompleteMultipartUploadURL(s.endPoint, bucketName, objectName, uploadID),
 		int64(len(completeBytes)), bytes.NewReader(completeBytes), s.accessKey, s.secretKey, s.signer)
 	c.Assert(err, nil)
@@ -2754,12 +2726,14 @@ func (s *TestSuiteCommon) TestObjectMultipart(c *check) {
 	c.Assert(err, nil)
 	// verify whether complete multipart was successful.
 	c.Assert(response.StatusCode, http.StatusOK)
-	var parts []completePart
+	var parts []CompletePart
 	for _, part := range completeUploads.Parts {
+		// For compressed objects, we dont treat E-Tag as checksum.
+		part.ETag = strings.Replace(part.ETag, "-1", "", -1)
 		part.ETag = canonicalizeETag(part.ETag)
 		parts = append(parts, part)
 	}
-	etag, err := getCompleteMultipartMD5(parts)
+	etag, err := getCompleteMultipartMD5(context.Background(), parts)
 	c.Assert(err, nil)
 	c.Assert(canonicalizeETag(response.Header.Get("Etag")), etag)
 }

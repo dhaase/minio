@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"reflect"
@@ -90,12 +91,12 @@ func TestReduceErrs(t *testing.T) {
 	}
 	// Validates list of all the testcases for returning valid errors.
 	for i, testCase := range testCases {
-		gotErr := reduceReadQuorumErrs(testCase.errs, testCase.ignoredErrs, 5)
-		if errorCause(gotErr) != testCase.err {
+		gotErr := reduceReadQuorumErrs(context.Background(), testCase.errs, testCase.ignoredErrs, 5)
+		if gotErr != testCase.err {
 			t.Errorf("Test %d : expected %s, got %s", i+1, testCase.err, gotErr)
 		}
-		gotNewErr := reduceWriteQuorumErrs(testCase.errs, testCase.ignoredErrs, 6)
-		if errorCause(gotNewErr) != errXLWriteQuorum {
+		gotNewErr := reduceWriteQuorumErrs(context.Background(), testCase.errs, testCase.ignoredErrs, 6)
+		if gotNewErr != errXLWriteQuorum {
 			t.Errorf("Test %d : expected %s, got %s", i+1, errXLWriteQuorum, gotErr)
 		}
 	}
@@ -109,14 +110,14 @@ func TestHashOrder(t *testing.T) {
 	}{
 		// cases which should pass the test.
 		// passing in valid object name.
-		{"object", []int{15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}},
-		{"The Shining Script <v1>.pdf", []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}},
+		{"object", []int{14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}},
+		{"The Shining Script <v1>.pdf", []int{16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}},
 		{"Cost Benefit Analysis (2009-2010).pptx", []int{15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}},
 		{"117Gn8rfHL2ACARPAhaFd0AGzic9pUbIA/5OCn5A", []int{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2}},
 		{"SHØRT", []int{11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}},
 		{"There are far too many object names, and far too few bucket names!", []int{15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}},
 		{"a/b/c/", []int{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2}},
-		{"/a/b/c", []int{7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6}},
+		{"/a/b/c", []int{6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5}},
 		{string([]byte{0xff, 0xfe, 0xfd}), []int{15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}},
 	}
 
@@ -124,12 +125,16 @@ func TestHashOrder(t *testing.T) {
 	for i, testCase := range testCases {
 		hashedOrder := hashOrder(testCase.objectName, 16)
 		if !reflect.DeepEqual(testCase.hashedOrder, hashedOrder) {
-			t.Errorf("Test case %d: Expected \"%#v\" but failed \"%#v\"", i+1, testCase.hashedOrder, hashedOrder)
+			t.Errorf("Test case %d: Expected \"%v\" but failed \"%v\"", i+1, testCase.hashedOrder, hashedOrder)
 		}
 	}
 
 	// Tests hashing order to fail for when order is '-1'.
 	if hashedOrder := hashOrder("This will fail", -1); hashedOrder != nil {
+		t.Errorf("Test: Expect \"nil\" but failed \"%#v\"", hashedOrder)
+	}
+
+	if hashedOrder := hashOrder("This will fail", 0); hashedOrder != nil {
 		t.Errorf("Test: Expect \"nil\" but failed \"%#v\"", hashedOrder)
 	}
 }
@@ -209,7 +214,6 @@ func getSampleXLMeta(totalParts int) xlMetaV1 {
 
 // Compare the unmarshaled XLMetaV1 with the one obtained from gjson parsing.
 func compareXLMetaV1(t *testing.T, unMarshalXLMeta, gjsonXLMeta xlMetaV1) {
-
 	// Start comparing the fields of xlMetaV1 obtained from gjson parsing with one parsed using json unmarshaling.
 	if unMarshalXLMeta.Version != gjsonXLMeta.Version {
 		t.Errorf("Expected the Version to be \"%s\", but got \"%s\".", unMarshalXLMeta.Version, gjsonXLMeta.Version)
@@ -263,6 +267,7 @@ func compareXLMetaV1(t *testing.T, unMarshalXLMeta, gjsonXLMeta xlMetaV1) {
 			}
 		}
 	}
+
 	if unMarshalXLMeta.Minio.Release != gjsonXLMeta.Minio.Release {
 		t.Errorf("Expected the Release string to be \"%s\", but got \"%s\".", unMarshalXLMeta.Minio.Release, gjsonXLMeta.Minio.Release)
 	}
@@ -307,7 +312,7 @@ func TestGetXLMetaV1GJson1(t *testing.T) {
 		t.Errorf("Unmarshalling failed: %v", err)
 	}
 
-	gjsonXLMeta, err := xlMetaV1UnmarshalJSON(xlMetaJSON)
+	gjsonXLMeta, err := xlMetaV1UnmarshalJSON(context.Background(), xlMetaJSON)
 	if err != nil {
 		t.Errorf("gjson parsing of XLMeta failed: %v", err)
 	}
@@ -324,7 +329,7 @@ func TestGetXLMetaV1GJson10(t *testing.T) {
 	if err := json.Unmarshal(xlMetaJSON, &unMarshalXLMeta); err != nil {
 		t.Errorf("Unmarshalling failed: %v", err)
 	}
-	gjsonXLMeta, err := xlMetaV1UnmarshalJSON(xlMetaJSON)
+	gjsonXLMeta, err := xlMetaV1UnmarshalJSON(context.Background(), xlMetaJSON)
 	if err != nil {
 		t.Errorf("gjson parsing of XLMeta failed: %v", err)
 	}
@@ -354,7 +359,7 @@ func TestGetPartSizeFromIdx(t *testing.T) {
 	}
 
 	for i, testCase := range testCases {
-		s, err := calculatePartSizeFromIdx(testCase.totalSize, testCase.partSize, testCase.partIndex)
+		s, err := calculatePartSizeFromIdx(context.Background(), testCase.totalSize, testCase.partSize, testCase.partIndex)
 		if err != nil {
 			t.Errorf("Test %d: Expected to pass but failed. %s", i+1, err)
 		}
@@ -374,16 +379,16 @@ func TestGetPartSizeFromIdx(t *testing.T) {
 		// partIndex is 0, returns error.
 		{10, 1, 0, errPartSizeIndex},
 		// Total size is -1, returns error.
-		{-1, 10, 1, errInvalidArgument},
+		{-2, 10, 1, errInvalidArgument},
 	}
 
 	for i, testCaseFailure := range testCasesFailure {
-		_, err := calculatePartSizeFromIdx(testCaseFailure.totalSize, testCaseFailure.partSize, testCaseFailure.partIndex)
+		_, err := calculatePartSizeFromIdx(context.Background(), testCaseFailure.totalSize, testCaseFailure.partSize, testCaseFailure.partIndex)
 		if err == nil {
 			t.Errorf("Test %d: Expected to failed but passed. %s", i+1, err)
 		}
-		if err != nil && errorCause(err) != testCaseFailure.err {
-			t.Errorf("Test %d: Expected err %s, but got %s", i+1, testCaseFailure.err, errorCause(err))
+		if err != nil && err != testCaseFailure.err {
+			t.Errorf("Test %d: Expected err %s, but got %s", i+1, testCaseFailure.err, err)
 		}
 	}
 }

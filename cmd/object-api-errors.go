@@ -1,5 +1,5 @@
 /*
- * Minio Cloud Storage, (C) 2015 Minio, Inc.
+ * Minio Cloud Storage, (C) 2015, 2016, 2017, 2018 Minio, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,11 +25,6 @@ import (
 // handle all cases where we have known types of errors returned by
 // underlying storage layer.
 func toObjectErr(err error, params ...string) error {
-	e, ok := err.(*Error)
-	if ok {
-		err = e.e
-	}
-
 	switch err {
 	case errVolumeNotFound:
 		if len(params) >= 1 {
@@ -93,10 +88,6 @@ func toObjectErr(err error, params ...string) error {
 		err = InsufficientWriteQuorum{}
 	case io.ErrUnexpectedEOF, io.ErrShortWrite:
 		err = IncompleteBody{}
-	}
-	if ok {
-		e.e = err
-		return e
 	}
 	return err
 }
@@ -168,6 +159,13 @@ type ObjectNotFound GenericError
 
 func (e ObjectNotFound) Error() string {
 	return "Object not found: " + e.Bucket + "#" + e.Object
+}
+
+// ObjectAlreadyExists object already exists.
+type ObjectAlreadyExists GenericError
+
+func (e ObjectAlreadyExists) Error() string {
+	return "Object: " + e.Bucket + "#" + e.Object + " already exists"
 }
 
 // ObjectExistsAsDirectory object already exists as a directory.
@@ -263,13 +261,13 @@ func (e IncompleteBody) Error() string {
 
 // InvalidRange - invalid range typed error.
 type InvalidRange struct {
-	offsetBegin  int64
-	offsetEnd    int64
-	resourceSize int64
+	OffsetBegin  int64
+	OffsetEnd    int64
+	ResourceSize int64
 }
 
 func (e InvalidRange) Error() string {
-	return fmt.Sprintf("The requested range \"bytes %d-%d/%d\" is not satisfiable.", e.offsetBegin, e.offsetEnd, e.resourceSize)
+	return fmt.Sprintf("The requested range \"bytes %d-%d/%d\" is not satisfiable.", e.OffsetBegin, e.OffsetEnd, e.ResourceSize)
 }
 
 // ObjectTooLarge error returned when the size of the object > max object size allowed (5G) per request.
@@ -316,17 +314,15 @@ func (e InvalidUploadID) Error() string {
 }
 
 // InvalidPart One or more of the specified parts could not be found
-type InvalidPart struct{}
-
-func (e InvalidPart) Error() string {
-	return "One or more of the specified parts could not be found. The part may not have been uploaded, or the specified entity tag may not match the part's entity tag."
+type InvalidPart struct {
+	PartNumber int
+	ExpETag    string
+	GotETag    string
 }
 
-// PartsSizeUnequal - All parts except the last part should be of the same size
-type PartsSizeUnequal struct{}
-
-func (e PartsSizeUnequal) Error() string {
-	return "All parts except the last part should be of the same size"
+func (e InvalidPart) Error() string {
+	return fmt.Sprintf("Specified part could not be found. PartNumber %d, Expected %s, got %s",
+		e.PartNumber, e.ExpETag, e.GotETag)
 }
 
 // PartTooSmall - error if part size is less than 5MB.
@@ -347,6 +343,13 @@ func (e PartTooBig) Error() string {
 	return "Part size bigger than the allowed limit"
 }
 
+// InvalidETag error returned when the etag has changed on disk
+type InvalidETag struct{}
+
+func (e InvalidETag) Error() string {
+	return "etag of the object has changed"
+}
+
 // NotImplemented If a feature is not implemented
 type NotImplemented struct{}
 
@@ -361,13 +364,6 @@ func (e PolicyNesting) Error() string {
 	return "New bucket policy conflicts with an existing policy. Please try again with new prefix."
 }
 
-// PolicyNotFound - policy not found
-type PolicyNotFound GenericError
-
-func (e PolicyNotFound) Error() string {
-	return "Policy not found"
-}
-
 // UnsupportedMetadata - unsupported metadata
 type UnsupportedMetadata struct{}
 
@@ -375,32 +371,15 @@ func (e UnsupportedMetadata) Error() string {
 	return "Unsupported headers in Metadata"
 }
 
-// Check if error type is IncompleteBody.
-func isErrIncompleteBody(err error) bool {
-	err = errorCause(err)
-	switch err.(type) {
-	case IncompleteBody:
-		return true
-	}
-	return false
+// BackendDown is returned for network errors or if the gateway's backend is down.
+type BackendDown struct{}
+
+func (e BackendDown) Error() string {
+	return "Backend down"
 }
 
-// Check if error type is BucketPolicyNotFound.
-func isErrBucketPolicyNotFound(err error) bool {
-	err = errorCause(err)
-	switch err.(type) {
-	case BucketPolicyNotFound:
-		return true
-	}
-	return false
-}
-
-// Check if error type is ObjectNotFound.
+// isErrObjectNotFound - Check if error type is ObjectNotFound.
 func isErrObjectNotFound(err error) bool {
-	err = errorCause(err)
-	switch err.(type) {
-	case ObjectNotFound:
-		return true
-	}
-	return false
+	_, ok := err.(ObjectNotFound)
+	return ok
 }

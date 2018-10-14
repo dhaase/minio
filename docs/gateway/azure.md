@@ -17,7 +17,7 @@ export MINIO_SECRET_KEY=azureaccountkey
 minio gateway azure
 ```
 ## Test using Minio Browser
-Minio Gateway comes with an embedded web based object browser. Point your web browser to http://127.0.0.1:9000 ensure your server has started successfully.
+Minio Gateway comes with an embedded web based object browser. Point your web browser to http://127.0.0.1:9000 to ensure that your server has started successfully.
 
 ![Screenshot](https://github.com/minio/minio/blob/master/docs/screenshots/minio-browser-gateway.png?raw=true)
 ## Test using Minio Client `mc`
@@ -42,7 +42,7 @@ Gateway inherits the following Azure limitations:
 - Only read-only bucket policy supported at bucket level, all other variations will return API Notimplemented error.
 - Bucket names with "." in the bucket name are not supported.
 - Non-empty buckets get removed on a DeleteBucket() call.
-- _List Multipart Uploads_ and _List Object parts_ always returns empty list. i.e Client will need to remember all the parts that it has uploaded and use it for _Complete Multipart Upload_
+- _List Multipart Uploads_ always returns empty list.
 
 Other limitations:
 
@@ -51,5 +51,4 @@ Other limitations:
 ## Explore Further
 - [`mc` command-line interface](https://docs.minio.io/docs/minio-client-quickstart-guide)
 - [`aws` command-line interface](https://docs.minio.io/docs/aws-cli-with-minio)
-- [`minfs` filesystem interface](http://docs.minio.io/docs/minfs-quickstart-guide)
 - [`minio-go` Go SDK](https://docs.minio.io/docs/golang-client-quickstart-guide)

@@ -17,62 +17,142 @@
 package cmd
 
 import (
+	"context"
+
+	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/hash"
+	"github.com/minio/minio/pkg/madmin"
+	"github.com/minio/minio/pkg/policy"
 )
 
-type gatewayUnsupported struct{}
+// GatewayUnsupported list of unsupported call stubs for gateway.
+type GatewayUnsupported struct{}
 
-// CopyObjectPart - Not implemented.
-func (a gatewayUnsupported) CopyObjectPart(srcBucket, srcObject, destBucket, destObject string, uploadID string,
-	partID int, startOffset int64, length int64) (info PartInfo, err error) {
-	return info, traceError(NotImplemented{})
+// ListMultipartUploads lists all multipart uploads.
+func (a GatewayUnsupported) ListMultipartUploads(ctx context.Context, bucket string, prefix string, keyMarker string, uploadIDMarker string, delimiter string, maxUploads int) (lmi ListMultipartsInfo, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return lmi, NotImplemented{}
 }
 
-// HealBucket - Not relevant.
-func (a gatewayUnsupported) HealBucket(bucket string) error {
-	return traceError(NotImplemented{})
+// NewMultipartUpload upload object in multiple parts
+func (a GatewayUnsupported) NewMultipartUpload(ctx context.Context, bucket string, object string, metadata map[string]string, opts ObjectOptions) (uploadID string, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return "", NotImplemented{}
 }
 
-// ListBucketsHeal - Not relevant.
-func (a gatewayUnsupported) ListBucketsHeal() (buckets []BucketInfo, err error) {
-	return nil, traceError(NotImplemented{})
+// CopyObjectPart copy part of object to uploadID for another object
+func (a GatewayUnsupported) CopyObjectPart(ctx context.Context, srcBucket, srcObject, destBucket, destObject, uploadID string, partID int, startOffset, length int64, srcInfo ObjectInfo, srcOpts, dstOpts ObjectOptions) (pi PartInfo, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return pi, NotImplemented{}
 }
 
-// HealObject - Not relevant.
-func (a gatewayUnsupported) HealObject(bucket, object string) (int, int, error) {
-	return 0, 0, traceError(NotImplemented{})
+// PutObjectPart puts a part of object in bucket
+func (a GatewayUnsupported) PutObjectPart(ctx context.Context, bucket string, object string, uploadID string, partID int, data *hash.Reader, opts ObjectOptions) (pi PartInfo, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return pi, NotImplemented{}
 }
 
-// ListObjectsHeal - Not relevant.
-func (a gatewayUnsupported) ListObjectsHeal(bucket, prefix, marker, delimiter string, maxKeys int) (loi ListObjectsInfo, e error) {
-	return loi, traceError(NotImplemented{})
+// ListObjectParts returns all object parts for specified object in specified bucket
+func (a GatewayUnsupported) ListObjectParts(ctx context.Context, bucket string, object string, uploadID string, partNumberMarker int, maxParts int) (lpi ListPartsInfo, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return lpi, NotImplemented{}
 }
 
-// ListUploadsHeal - Not relevant.
-func (a gatewayUnsupported) ListUploadsHeal(bucket, prefix, marker, uploadIDMarker,
-	delimiter string, maxUploads int) (lmi ListMultipartsInfo, e error) {
-	return lmi, traceError(NotImplemented{})
+// AbortMultipartUpload aborts a ongoing multipart upload
+func (a GatewayUnsupported) AbortMultipartUpload(ctx context.Context, bucket string, object string, uploadID string) error {
+	logger.LogIf(ctx, NotImplemented{})
+	return NotImplemented{}
 }
 
-// AnonListObjects - List objects anonymously
-func (a gatewayUnsupported) AnonListObjects(bucket string, prefix string, marker string, delimiter string,
-	maxKeys int) (loi ListObjectsInfo, err error) {
-	return loi, traceError(NotImplemented{})
+// CompleteMultipartUpload completes ongoing multipart upload and finalizes object
+func (a GatewayUnsupported) CompleteMultipartUpload(ctx context.Context, bucket string, object string, uploadID string, uploadedParts []CompletePart) (oi ObjectInfo, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return oi, NotImplemented{}
 }
 
-// AnonListObjectsV2 - List objects in V2 mode, anonymously
-func (a gatewayUnsupported) AnonListObjectsV2(bucket, prefix, continuationToken, delimiter string, maxKeys int,
-	fetchOwner bool, startAfter string) (loi ListObjectsV2Info, err error) {
-	return loi, traceError(NotImplemented{})
+// SetBucketPolicy sets policy on bucket
+func (a GatewayUnsupported) SetBucketPolicy(ctx context.Context, bucket string, bucketPolicy *policy.Policy) error {
+	logger.LogIf(ctx, NotImplemented{})
+	return NotImplemented{}
 }
 
-// AnonGetBucketInfo - Get bucket metadata anonymously.
-func (a gatewayUnsupported) AnonGetBucketInfo(bucket string) (bi BucketInfo, err error) {
-	return bi, traceError(NotImplemented{})
+// GetBucketPolicy will get policy on bucket
+func (a GatewayUnsupported) GetBucketPolicy(ctx context.Context, bucket string) (bucketPolicy *policy.Policy, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return nil, NotImplemented{}
 }
 
-// AnonPutObject creates a new object anonymously with the incoming data,
-func (a gatewayUnsupported) AnonPutObject(bucket, object string, data *hash.Reader,
-	metadata map[string]string) (ObjectInfo, error) {
-	return ObjectInfo{}, traceError(NotImplemented{})
+// DeleteBucketPolicy deletes all policies on bucket
+func (a GatewayUnsupported) DeleteBucketPolicy(ctx context.Context, bucket string) error {
+	logger.LogIf(ctx, NotImplemented{})
+	return NotImplemented{}
+}
+
+// ReloadFormat - Not implemented stub.
+func (a GatewayUnsupported) ReloadFormat(ctx context.Context, dryRun bool) error {
+	return NotImplemented{}
+}
+
+// HealFormat - Not implemented stub
+func (a GatewayUnsupported) HealFormat(ctx context.Context, dryRun bool) (madmin.HealResultItem, error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return madmin.HealResultItem{}, NotImplemented{}
+}
+
+// HealBucket - Not implemented stub
+func (a GatewayUnsupported) HealBucket(ctx context.Context, bucket string, dryRun bool) ([]madmin.HealResultItem, error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return nil, NotImplemented{}
+}
+
+// ListBucketsHeal - Not implemented stub
+func (a GatewayUnsupported) ListBucketsHeal(ctx context.Context) (buckets []BucketInfo, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return nil, NotImplemented{}
+}
+
+// HealObject - Not implemented stub
+func (a GatewayUnsupported) HealObject(ctx context.Context, bucket, object string, dryRun bool) (h madmin.HealResultItem, e error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return h, NotImplemented{}
+}
+
+// ListObjectsV2 - Not implemented stub
+func (a GatewayUnsupported) ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result ListObjectsV2Info, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return result, NotImplemented{}
+}
+
+// ListObjectsHeal - Not implemented stub
+func (a GatewayUnsupported) ListObjectsHeal(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (loi ListObjectsInfo, e error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return loi, NotImplemented{}
+}
+
+// CopyObject copies a blob from source container to destination container.
+func (a GatewayUnsupported) CopyObject(ctx context.Context, srcBucket string, srcObject string, destBucket string, destObject string,
+	srcInfo ObjectInfo, srcOpts, dstOpts ObjectOptions) (objInfo ObjectInfo, err error) {
+	logger.LogIf(ctx, NotImplemented{})
+	return objInfo, NotImplemented{}
+}
+
+// RefreshBucketPolicy refreshes cache policy with what's on disk.
+func (a GatewayUnsupported) RefreshBucketPolicy(ctx context.Context, bucket string) error {
+	logger.LogIf(ctx, NotImplemented{})
+	return NotImplemented{}
+}
+
+// IsNotificationSupported returns whether bucket notification is applicable for this layer.
+func (a GatewayUnsupported) IsNotificationSupported() bool {
+	return false
+}
+
+// IsEncryptionSupported returns whether server side encryption is applicable for this layer.
+func (a GatewayUnsupported) IsEncryptionSupported() bool {
+	return false
+}
+
+// IsCompressionSupported returns whether compression is applicable for this layer.
+func (a GatewayUnsupported) IsCompressionSupported() bool {
+	return false
 }
